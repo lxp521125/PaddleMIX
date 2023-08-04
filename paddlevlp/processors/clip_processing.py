@@ -14,11 +14,11 @@
 """
 Processor class for CLIP/EVA-CLIP.
 """
-
+from paddle.vision.transforms import functional as F
 import re
 from typing import Dict, List, Optional, Tuple, Union
 import paddle
-
+from IPython import embed
 import numpy as np
 import PIL
 from paddlenlp.transformers.tokenizer_utils_base import (
@@ -110,8 +110,10 @@ class CLIPProcessor(ProcessorMixin):
             raise ValueError("You have to specify either images or text.")
 
         # add pixel_values
+        # images PIL list
         encoding_image_processor = self.image_processor(
             images, return_tensors=return_tensors, mode=mode)
+        # ['image'].shape [32, 3, 224, 224]
 
         # text_encoding = self.text_processor(text, mode=mode)
         text_encoding = text
@@ -207,7 +209,7 @@ class CLIPTextProcessor(BaseTextProcessor):
         """
         if not isinstance(text, (list, tuple)):
             text = [text]
-
+        # import pdb; pdb.set_trace()
         results = [self.prompt + self.pre_caption(t) for t in text]
         if mode == "train":
             results = [res + "\n" for res in results]
@@ -316,6 +318,7 @@ class CLIPImageProcessor(BaseImageProcessor):
             do_collate: bool=False,
             mode: str="train",
             **kwargs, ) -> None:
+        scale = (1.0, 1.0)
         super().__init__(**kwargs)
         size = size if size is not None else {"height": 384, "width": 384}
         size = get_size_dict(size, default_to_square=True)
@@ -362,7 +365,7 @@ class CLIPImageProcessor(BaseImageProcessor):
         """
         size = get_size_dict(size, default_to_square=True)
         output_size = (size["width"], size["height"])
-        return resize(
+        return F.resize(
             image,
             size=output_size,
             resample=resample,
@@ -388,28 +391,38 @@ class CLIPImageProcessor(BaseImageProcessor):
         """
         return rescale(image, scale=scale, data_format=data_format, **kwargs)
 
+    # def normalize(
+    #         self,
+    #         image: np.ndarray,
+    #         mean: Union[float, List[float]],
+    #         std: Union[float, List[float]],
+    #         data_format: Optional[Union[str, ChannelDimension]]=None,
+    #         **kwargs, ) -> np.ndarray:
+    #     """
+    #     Normalize an image. image = (image - image_mean) / image_std.
+
+    #     Args:
+    #         image (`np.ndarray`):
+    #             Image to normalize.
+    #         mean (`float` or `List[float]`):
+    #             Image mean.
+    #         std (`float` or `List[float]`):
+    #             Image standard deviation.
+    #         data_format (`str` or `ChannelDimension`, *optional*):
+    #             The channel dimension format of the image. If not provided, it will be the same as the input image.
+    #     """
+    #     return normalize(
+    #         image, mean=mean, std=std, data_format=data_format, **kwargs)
+
     def normalize(
             self,
-            image: np.ndarray,
+            image: paddle.Tensor,
             mean: Union[float, List[float]],
             std: Union[float, List[float]],
             data_format: Optional[Union[str, ChannelDimension]]=None,
             **kwargs, ) -> np.ndarray:
-        """
-        Normalize an image. image = (image - image_mean) / image_std.
-
-        Args:
-            image (`np.ndarray`):
-                Image to normalize.
-            mean (`float` or `List[float]`):
-                Image mean.
-            std (`float` or `List[float]`):
-                Image standard deviation.
-            data_format (`str` or `ChannelDimension`, *optional*):
-                The channel dimension format of the image. If not provided, it will be the same as the input image.
-        """
-        return normalize(
-            image, mean=mean, std=std, data_format=data_format, **kwargs)
+        tensor_normalize = paddle.vision.transforms.Normalize(mean=mean, std=std, data_format=data_format, **kwargs)
+        return tensor_normalize(image)
 
     def random_resized_crop(
             self,
@@ -569,11 +582,11 @@ class CLIPImageProcessor(BaseImageProcessor):
                 "Random resize crop probability must be specified if do_rand_resize_crop is True."
             )
         # PIL RGBA images are converted to RGB
-        if do_convert_rgb:
-            images = [convert_to_rgb(image) for image in images]
+        # if do_convert_rgb:
+        #     images = [convert_to_rgb(image) for image in images]
 
         # All transformations expect numpy arrays.
-        images = [to_numpy_array(image) for image in images]
+        #images = [to_numpy_array(image) for image in images]
         if do_rand_resize_crop and mode == "train":
             images = [
                 self.random_resized_crop(
@@ -599,16 +612,22 @@ class CLIPImageProcessor(BaseImageProcessor):
                     image=image, scale=rescale_factor) for image in images
             ]
         if do_normalize:
-            images = [
-                self.normalize(
-                    image=image.astype('float32') / 255.,
-                    mean=image_mean,
-                    std=image_std) for image in images
-            ]
-
+            images = [convert_to_rgb(image) for image in images]
+            images = [to_numpy_array(image) for image in images] # (375, 500, 3)
+            # images = [
+            #     self.normalize(
+            #         image=image.astype('float32') / 255.,
+            #         mean=image_mean,
+            #         std=image_std) for image in images
+            # ]
+        # [(224, 224, 3)]
         images = [
             to_channel_dimension_format(image, data_format) for image in images
         ]
+        # [(3, 224, 224)]
+        #return BatchEncoding(data=data, tensor_type=return_tensors)
 
-        data = {"image": images}
-        return BatchEncoding(data=data, tensor_type=return_tensors)
+        batch_images = BatchEncoding(data={"image": images}, tensor_type='pd')
+        # normalize = paddle.vision.transforms.Normalize(mean=image_mean, std=image_std, data_format='CHW', to_rgb=False)
+        image = self.normalize(batch_images["image"] / 255, mean=image_mean, std=image_std, data_format='CHW')
+        return {"image": image}

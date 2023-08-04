@@ -70,7 +70,7 @@ class ModelArguments:
     """
 
     model: str = field(
-        default="EVA02-CLIP-B-16",
+        default="EVA/EVA02-CLIP-B-16",
         metadata={
             "help":
             "model name to create, for example [EVA02-CLIP-B-16/coca_EVA02-B-16]"
@@ -214,7 +214,6 @@ def main_worker(training_args, model_args, data_args):
 
     # train_dataset = load_dataset('laion_clip', splits="train")
     train_dataset = LaionDataset(data_args.train_data, get_text_emb=data_args.precomputed_text_emb, data_world_rank=training_args.data_world_rank, data_world_size=training_args.data_world_size)
-    # train_dataset = LaionCLIP()
 
     processor = CLIPProcessor.from_pretrained(model_args.model_name_or_path)
     collator = Collator(processor)
@@ -241,15 +240,14 @@ if __name__ == "__main__":
     parser = PdArgumentParser(
         (ModelArguments, DataArguments, PreTrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-    # paddle.set_flags({'FLAGS_cudnn_deterministic': True})
-    # paddle.set_flags({'FLAGS_embedding_deterministic': 1})
     training_args.hostname = socket.gethostname()
-    if training_args.accum_freq > 1:
-        training_args.gradient_accumulation_steps = training_args.accum_freq
     pprint.pprint(data_args)
     pprint.pprint(model_args)
     pprint.pprint(training_args)
-
+    if training_args.accum_freq > 1:
+        # training_args.per_device_train_batch_size *= training_args.accum_freq
+        training_args.gradient_accumulation_steps = training_args.accum_freq
+    
     setdistenv(training_args)
     model_args.data_world_rank = training_args.data_world_rank
     model_args.data_world_size = training_args.data_world_size

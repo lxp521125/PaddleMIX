@@ -789,6 +789,7 @@ class EVAVisionTransformer(EVAVisionTransformerPretrainedModel):
             has_bias=True,
             gather_output=True) if num_classes > 0 else paddle.nn.Identity()
 
+
     def forward_features(self, x, return_all_features=False):
         x = self.patch_embed(x)
         batch_size, seq_len, _ = x.shape
@@ -817,7 +818,7 @@ class EVAVisionTransformer(EVAVisionTransformerPretrainedModel):
             cnt += 1
             if self.enable_recompute:
                 x = paddle.distributed.fleet.utils.recompute(blk, x,
-                                                             (rel_pos_bias, ))
+                                                             (rel_pos_bias, ), use_reentrant=False)
             else:
                 x = blk(x, rel_pos_bias=rel_pos_bias)
 

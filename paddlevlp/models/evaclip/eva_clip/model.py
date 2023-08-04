@@ -77,12 +77,13 @@ class EVACLIP(EVACLIPPretrainedModel):
             gather_with_grad=False,
             cache_labels=True,
             data_world_rank=0,
-            data_world_size=1, ):
+            data_world_size=1, 
+            enable_recompute=False):
         super().__init__(config)
         vision_config = EVAVisionTransformerConfig(**config.vision_config)
         text_config = EVATextTransformerConfig(**config.text_config)
         self.visual = EVAVisionTransformer(vision_config)
-        self.text = EVATextTransformer(text_config)
+        # self.text = EVATextTransformer(text_config)
         init_data = paddle.ones(shape=[1]) * np.log(1 / 0.07)
         self.logit_scale = self.create_parameter(
             shape=[1],
@@ -94,6 +95,10 @@ class EVACLIP(EVACLIPPretrainedModel):
             cache_labels=cache_labels,
             rank=data_world_rank,
             world_size=data_world_size, )
+
+        if enable_recompute:
+            self.visual.set_grad_checkpointing(True)
+            self.text.set_grad_checkpointing(True)
 
     def lock_image_tower(self, unlocked_groups=0, freeze_bn_stats=False):
         self.visual.lock(

@@ -133,7 +133,7 @@ def get_assigner(args, model):
                  for i in range(visual_num_layers + 2)))
     else:
         assigner_visual = None
-    if text_ld < 1.0:
+    if text_ld < 1.0 and hasattr(model, 'text'):
         text_num_layers = model.text.get_num_layers()
         assigner_text = LayerDecayValueAssigner(
             list(text_ld**(text_num_layers + 1 - i)
