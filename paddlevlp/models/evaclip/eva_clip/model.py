@@ -4,15 +4,12 @@ import paddle
 Adapted from https://github.com/openai/CLIP. Originally MIT License, Copyright (c) 2021 OpenAI.
 """
 import os
+import math
 from dataclasses import dataclass
 from typing import Optional, Tuple, Union
 from functools import partial
 import numpy as np
 from .loss import ClipLoss
-try:
-    from .hf_model import HFTextEncoder
-except:
-    HFTextEncoder = None
 from .timm_model import TimmModel
 from .eva_vit_model import EVAVisionTransformer
 from .transformer import LayerNorm, QuickGELU, Attention, VisionTransformer, EVATextTransformer
@@ -118,7 +115,7 @@ class EVACLIP(EVACLIPPretrainedModel):
 
     @paddle.no_grad()
     def clip_scale(self):
-        share_buffer = self.logit_scale.clip(0, 4.6052)
+        share_buffer = self.logit_scale.clip(0, math.log(100))
         self.logit_scale.copy_(share_buffer, True)
 
     def encode_image(self, image, normalize: bool=False):
@@ -136,7 +133,7 @@ class EVACLIP(EVACLIPPretrainedModel):
             x=features, axis=-1) if normalize else features
 
     def forward(self, image, input_ids, text_emb=None, skiploss=False):
-        self.clip_scale()
+        self.clip_scale() ###
         text = input_ids
         text_features = text_emb
         image_features = self.encode_image(image, normalize=True)

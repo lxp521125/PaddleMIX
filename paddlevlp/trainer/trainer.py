@@ -11,12 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import numpy as np
 import paddle
 from paddlenlp.trainer.trainer import Trainer
 from paddle.io import DataLoader
 from paddlevlp.models.evaclip.eva_clip.utils import clip_grad_norm
 from torch.utils.tensorboard import SummaryWriter
+
 
 class CLIPTrainer(Trainer):
     def __init__(self, **kwargs):
@@ -41,7 +42,7 @@ class CLIPTrainer(Trainer):
         
         self.rank = paddle.distributed.get_rank()
         if self.rank==0:
-            self.writer = SummaryWriter("/root/paddlejob/workspace/env_run/niuzhibo/baidu/evaclip_finaltorch/output/with_pretraining/eva_clip_ppmix_af2")
+            self.writer = SummaryWriter("output/tensorboard")
             self.logstep = 0
 
     def training_step(self, model, inputs) -> paddle.Tensor:
@@ -62,6 +63,7 @@ class CLIPTrainer(Trainer):
         Return:
             `paddle.Tensor`: The tensor with training loss on this batch.
         """
+        
         if self.args.pipeline_parallel_degree > 1:
             return self.training_pipeline_step(model, inputs)
         elif self.args.accum_freq > 1:
@@ -71,7 +73,8 @@ class CLIPTrainer(Trainer):
         inputs = self._prepare_inputs(inputs)
 
         with self.autocast_smart_context_manager():
-            loss = self.compute_loss(model, inputs)
+            loss, outputs = self.compute_loss(model, inputs, return_outputs=1)
+        loss_itc, image_features, text_features, logit_scale = outputs
 
         if self.args.gradient_accumulation_steps > 1:
             loss = loss / self.args.gradient_accumulation_steps
@@ -82,18 +85,20 @@ class CLIPTrainer(Trainer):
             loss.backward()
 
         if self.args.max_grad_norm > 0.0:
-            _ = clip_grad_norm(model, self.args.max_grad_norm)
+            grad_norms = clip_grad_norm(model, self.args.max_grad_norm)
 
         if self.rank == 0:
             self.logstep += 1
             self.writer.add_scalar("train/loss", loss.item(), self.logstep)
+            self.writer.add_scalar("train/grad_norm", grad_norms.item(), self.logstep)
+            self.writer.add_scalar("train/logit_scale", logit_scale.item(), self.logstep)
 
         return loss.detach()
-
 
     def training_step_accumfreq(self, model, inputs) -> paddle.Tensor:
         model.train()
         inputs = self._prepare_inputs(inputs)
+        ## delay remove, this should reverse later
         # with paddle.no_grad():
         #     preds = model(**inputs, skiploss=True)
         #     image_features, text_features, logit_scale = preds[:3]
@@ -161,7 +166,7 @@ class CLIPTrainer(Trainer):
         if self.args.max_grad_norm > 0.0:
             if self.do_grad_scaling:
                 self.scaler.unscale_(self.optimizer)
-            _ = clip_grad_norm(model, self.args.max_grad_norm)
+            grad_norms = clip_grad_norm(model, self.args.max_grad_norm)
 
         self.accum_features.clear()
         self.accum_images.clear()

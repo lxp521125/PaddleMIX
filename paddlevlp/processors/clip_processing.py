@@ -209,7 +209,6 @@ class CLIPTextProcessor(BaseTextProcessor):
         """
         if not isinstance(text, (list, tuple)):
             text = [text]
-        # import pdb; pdb.set_trace()
         results = [self.prompt + self.pre_caption(t) for t in text]
         if mode == "train":
             results = [res + "\n" for res in results]
@@ -613,7 +612,7 @@ class CLIPImageProcessor(BaseImageProcessor):
             ]
         if do_normalize:
             images = [convert_to_rgb(image) for image in images]
-            images = [to_numpy_array(image) for image in images] # (375, 500, 3)
+            images = [np.array(image, 'float32') for image in images]
             # images = [
             #     self.normalize(
             #         image=image.astype('float32') / 255.,
@@ -621,13 +620,71 @@ class CLIPImageProcessor(BaseImageProcessor):
             #         std=image_std) for image in images
             # ]
         # [(224, 224, 3)]
-        images = [
-            to_channel_dimension_format(image, data_format) for image in images
-        ]
+        # images = [
+        #     to_channel_dimension_format(image, data_format) for image in images
+        # ]
         # [(3, 224, 224)]
         #return BatchEncoding(data=data, tensor_type=return_tensors)
 
-        batch_images = BatchEncoding(data={"image": images}, tensor_type='pd')
+        batch_images = BatchEncoding(data={"image": images}, tensor_type='pd') # to_tensor [2, 224, 224, 3]
+        batch_images["image"] = batch_images["image"].transpose([0,3,1,2])
         # normalize = paddle.vision.transforms.Normalize(mean=image_mean, std=image_std, data_format='CHW', to_rgb=False)
-        image = self.normalize(batch_images["image"] / 255, mean=image_mean, std=image_std, data_format='CHW')
+        #image = self.normalize(batch_images["image"] / 255.0, mean=image_mean, std=image_std, data_format='HWC').transpose([0,2,3,1])
+        image = self.normalize(batch_images["image"] / 255.0, mean=image_mean, std=image_std, data_format='CHW')
         return {"image": image}
+
+
+    def preprocess1111(
+            self,
+            images: ImageInput,
+            do_resize: Optional[bool]=None,
+            size: Optional[Dict[str, int]]=None,
+            resample: PILImageResampling=None,
+            do_rescale: Optional[bool]=None,
+            rescale_factor: Optional[float]=None,
+            do_normalize: Optional[bool]=None,
+            image_mean: Optional[Union[float, List[float]]]=None,
+            image_std: Optional[Union[float, List[float]]]=None,
+            return_tensors: Optional[Union[str, TensorType]]=None,
+            do_convert_rgb: bool=None,
+            do_flip: bool=None,
+            flip_prob: float=None,
+            do_rand_resize_crop: bool=None,
+            scale: Optional[Union[List[float], Tuple[float]]]=None,
+            data_format: ChannelDimension=ChannelDimension.FIRST,
+            mode: str=None,
+            **kwargs, ) -> PIL.Image.Image:
+        size = size if size is not None else self.size
+        size = get_size_dict(size, default_to_square=False)
+        # normalize_t = paddle.vision.transforms.Normalize(mean=image_mean, std=image_std)
+        # transforms_pd = paddle.vision.transforms.Compose([
+        #         paddle.vision.transforms.RandomResizedCrop(224, scale=(1.0, 1.0), interpolation="bicubic"), ###
+        #         #paddle.vision.transforms.Resize(image_size,interpolation="bicubic"),
+        #         #paddle.vision.transforms.CenterCrop(image_size),
+        #         _convert_to_rgb,
+        #         paddle.vision.transforms.ToTensor(data_format='CHW'),
+        #         #normalize_t,
+        #         ])
+        # images = [convert_to_rgb(image) for image in images]
+        # images_tensor = [transforms_pd(img) for img in images]
+        # embed()
+        # images_tensor = paddle.concat(images_tensor)
+        # return {"image": images_tensor}
+
+        processor = paddle.vision.transforms.Compose([
+                paddle.vision.transforms.RandomResizedCrop([224, 224], scale=(1.0, 1.0), interpolation="bicubic"), ###
+                #paddle.vision.transforms.Resize([224, 224],interpolation="bicubic"),
+                #paddle.vision.transforms.CenterCrop(224),
+                _convert_to_rgb,
+                paddle.vision.transforms.ToTensor(),
+                paddle.vision.transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711])
+            ])
+        inputs = []
+        for inp in images:
+            inputs.append(processor(inp).unsqueeze(0))
+        inputs = paddle.concat(inputs, 0)
+        return {"image": inputs}
+
+
+def _convert_to_rgb(image):
+    return image.convert('RGB')

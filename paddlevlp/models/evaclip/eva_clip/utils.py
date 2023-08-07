@@ -382,7 +382,8 @@ def clip_grad_norm_(
     for g in grads:
         clipg = paddle.multiply(g, clip_coef_clamped)
         g.set_value(clipg)
-    return total_norm
+    total_norm_clip = paddle.norm(paddle.stack([paddle.norm(g.detach(), norm_type) for g in grads]), norm_type)
+    return total_norm_clip
 
 
 def clip_grad_norm(
@@ -390,4 +391,3 @@ def clip_grad_norm(
         error_if_nonfinite: bool = False):
     parameters = model.parameters()
     return clip_grad_norm_(parameters, max_norm, norm_type, error_if_nonfinite)
-
